@@ -56,6 +56,10 @@ static NSString *SRReverbName(NSInteger index){
     }
 }
 
+static UIImage *MelodiaArtwork(NSURL *url);
+static UIImage *MelodiaPlaceholder(void);
+static NSString *MelodiaArtist(NSURL *url);
+
 @interface TrackSettings : NSObject
 @property float speed, pitch, reverb, bass;
 @property NSInteger reverbPreset;
@@ -196,12 +200,12 @@ static NSString *SRReverbName(NSInteger index){
     if(!self.nowPlayingTitle.length){ MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo=nil; return; }
     NSMutableDictionary *info=[NSMutableDictionary dictionary];
     info[MPMediaItemPropertyTitle]=self.nowPlayingTitle;
-    info[MPMediaItemPropertyArtist]=@"Melodia";
+    info[MPMediaItemPropertyArtist]=MelodiaArtist(self.url);
     info[MPMediaItemPropertyPlaybackDuration]=@(MAX(0,self.duration));
     info[MPNowPlayingInfoPropertyElapsedPlaybackTime]=@([self currentTime]);
     info[MPNowPlayingInfoPropertyPlaybackRate]=@(self.playing?self.currentSpeed:0);
     info[MPNowPlayingInfoPropertyDefaultPlaybackRate]=@(self.currentSpeed);
-    UIImage *icon=[UIImage imageNamed:@"MelodiaIcon.png"];
+    UIImage *icon=MelodiaArtwork(self.url)?:MelodiaPlaceholder();
     if(icon){ MPMediaItemArtwork *art=[[MPMediaItemArtwork alloc] initWithBoundsSize:icon.size requestHandler:^UIImage * _Nonnull(CGSize size) { return icon; }]; info[MPMediaItemPropertyArtwork]=art; }
     MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo=info;
 }
@@ -229,6 +233,8 @@ static NSString *SRReverbName(NSInteger index){
 @property (nonatomic, strong) UILabel *titleLabel,*elapsedLabel,*remainingLabel;
 @property (nonatomic, strong) UIButton *playButton,*saveButton,*exportButton,*previousButton,*nextButton,*shuffleButton,*repeatButton,*reverbTypeButton,*eightDButton,*slowedPresetButton,*nightcorePresetButton,*resetButton;
 @property (nonatomic, strong) UISlider *progressSlider,*volumeSlider;
+@property (nonatomic, strong) UIImageView *coverView,*backgroundCover;
+@property (nonatomic, strong) UILabel *artistLabel;
 @property (nonatomic, strong) NSTimer *progressTimer;
 @property (nonatomic, strong) NSMutableDictionary<NSNumber*,UISlider*> *sliders;
 @property (nonatomic, strong) NSMutableSet<NSNumber*> *steppedTags;
@@ -270,6 +276,13 @@ static UIImage *MelodiaArtwork(NSURL *url) {
         if(data.length){ UIImage *image=[UIImage imageWithData:data]; if(image)return image; }
     }
     return nil;
+}
+static NSString *MelodiaArtist(NSURL *url) {
+    if(!url) return @"Unknown Artist";
+    AVURLAsset *asset=[AVURLAsset URLAssetWithURL:url options:nil];
+    NSArray *items=[AVMetadataItem metadataItemsFromArray:asset.commonMetadata withKey:AVMetadataCommonKeyArtist keySpace:AVMetadataKeySpaceCommon];
+    for(AVMetadataItem *item in items) { NSString *name=item.stringValue; if(name.length) return name; }
+    return @"Unknown Artist";
 }
 static UIImage *MelodiaPlaceholder(void) {
     CGSize size=CGSizeMake(80,80);
@@ -425,7 +438,7 @@ static UIButton *Button(NSString *title){ UIButton*b=[UIButton buttonWithType:UI
 - (void)importAudio { UIDocumentPickerViewController*p=[[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeAudio] asCopy:YES]; p.delegate=self; p.allowsMultipleSelection=YES; [self presentViewController:p animated:YES completion:nil]; }
 - (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls { for(NSURL*u in urls){ BOOL scoped=[u startAccessingSecurityScopedResource]; NSString *name=u.lastPathComponent; NSURL*dst=[[self libraryDir] URLByAppendingPathComponent:name]; NSInteger n=2; while([[NSFileManager defaultManager] fileExistsAtPath:dst.path]){ NSString*base=[name stringByDeletingPathExtension];NSString*ext=name.pathExtension;dst=[[self libraryDir] URLByAppendingPathComponent:[NSString stringWithFormat:@"%@ %ld.%@",base,(long)n++,ext]];} [[NSFileManager defaultManager] copyItemAtURL:u toURL:dst error:nil]; if(scoped)[u stopAccessingSecurityScopedResource]; } [self reloadTracks]; }
 - (NSInteger)tableView:(UITableView*)t numberOfRowsInSection:(NSInteger)s{return self.visibleTracks.count;}
-- (UITableViewCell*)tableView:(UITableView*)t cellForRowAtIndexPath:(NSIndexPath*)i { UITableViewCell*c=[t dequeueReusableCellWithIdentifier:@"c"];if(!c)c=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"c"]; NSURL*u=self.visibleTracks[i.row];c.backgroundColor=UIColor.clearColor;c.textLabel.text=u.lastPathComponent.stringByDeletingPathExtension;c.textLabel.textColor=UIColor.whiteColor;c.textLabel.font=[UIFont systemFontOfSize:17 weight:UIFontWeightMedium];c.detailTextLabel.text=@"Song";c.detailTextLabel.textColor=SUBTLE();c.accessoryType=UITableViewCellAccessoryNone;
+- (UITableViewCell*)tableView:(UITableView*)t cellForRowAtIndexPath:(NSIndexPath*)i { UITableViewCell*c=[t dequeueReusableCellWithIdentifier:@"c"];if(!c)c=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"c"]; NSURL*u=self.visibleTracks[i.row];c.backgroundColor=UIColor.clearColor;c.textLabel.text=u.lastPathComponent.stringByDeletingPathExtension;c.textLabel.textColor=UIColor.whiteColor;c.textLabel.font=[UIFont systemFontOfSize:17 weight:UIFontWeightMedium];c.detailTextLabel.text=MelodiaArtist(u);c.detailTextLabel.textColor=SUBTLE();c.accessoryType=UITableViewCellAccessoryNone;
     c.imageView.image=MelodiaArtwork(u)?:MelodiaPlaceholder();
     c.imageView.layer.cornerRadius=7;c.imageView.layer.masksToBounds=YES;
     c.imageView.contentMode=UIViewContentModeScaleAspectFill;
@@ -443,9 +456,16 @@ static UIButton *Button(NSString *title){ UIButton*b=[UIButton buttonWithType:UI
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor=BG();
+    self.backgroundCover=[UIImageView new]; self.backgroundCover.image=MelodiaArtwork(self.trackURL); self.backgroundCover.contentMode=UIViewContentModeScaleAspectFill;
+    self.backgroundCover.frame=self.view.bounds; self.backgroundCover.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    [self.view addSubview:self.backgroundCover];
+    UIVisualEffectView *blur=[[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
+    blur.frame=self.view.bounds; blur.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight; [self.view addSubview:blur];
+    UIView *shade=[[UIView alloc] initWithFrame:self.view.bounds]; shade.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    shade.backgroundColor=[UIColor colorWithRed:.035 green:.045 blue:.075 alpha:.55]; [self.view addSubview:shade];
     CAGradientLayer *gradient=[CAGradientLayer layer];gradient.colors=@[(id)[UIColor colorWithRed:.09 green:.13 blue:.19 alpha:1].CGColor,(id)BG().CGColor];
     gradient.startPoint=CGPointMake(0,0);gradient.endPoint=CGPointMake(.8,1);
-    gradient.frame=UIScreen.mainScreen.bounds;[self.view.layer insertSublayer:gradient atIndex:0];
+    gradient.frame=UIScreen.mainScreen.bounds;gradient.opacity=.20;[self.view.layer insertSublayer:gradient atIndex:0];
     self.settings=[self.library settingsFor:self.trackURL];
     self.sliders=[NSMutableDictionary dictionary];
     self.steppedTags=[NSMutableSet set];
@@ -458,8 +478,12 @@ static UIButton *Button(NSString *title){ UIButton*b=[UIButton buttonWithType:UI
     UIScrollView *scroll=[UIScrollView new]; scroll.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever; scroll.translatesAutoresizingMaskIntoConstraints=NO; [self.view addSubview:scroll];
     UIView *content=[UIView new]; content.translatesAutoresizingMaskIntoConstraints=NO; [scroll addSubview:content];
 
+    self.coverView=[UIImageView new]; self.coverView.image=MelodiaArtwork(self.trackURL)?:MelodiaPlaceholder();
+    self.coverView.contentMode=UIViewContentModeScaleAspectFill; self.coverView.clipsToBounds=YES;
+    self.coverView.layer.cornerRadius=16; self.coverView.translatesAutoresizingMaskIntoConstraints=NO; [content addSubview:self.coverView];
     self.titleLabel=Label(self.trackURL.lastPathComponent.stringByDeletingPathExtension,21,UIFontWeightBold);
-    self.titleLabel.numberOfLines=0; self.titleLabel.lineBreakMode=NSLineBreakByWordWrapping; [content addSubview:self.titleLabel];
+    self.titleLabel.numberOfLines=2; self.titleLabel.lineBreakMode=NSLineBreakByTruncatingTail; [content addSubview:self.titleLabel];
+    self.artistLabel=Label(MelodiaArtist(self.trackURL),16,UIFontWeightMedium); self.artistLabel.textColor=[UIColor colorWithWhite:.80 alpha:1]; [content addSubview:self.artistLabel];
 
     UIStackView *fileActions=[UIStackView new]; fileActions.axis=UILayoutConstraintAxisHorizontal; fileActions.spacing=12; fileActions.distribution=UIStackViewDistributionFillEqually; fileActions.translatesAutoresizingMaskIntoConstraints=NO; [content addSubview:fileActions];
     self.saveButton=Button(@"Save"); self.saveButton.backgroundColor=ACCENT(); [self.saveButton addTarget:self action:@selector(save) forControlEvents:UIControlEventTouchUpInside]; [fileActions addArrangedSubview:self.saveButton];
@@ -481,7 +505,13 @@ static UIButton *Button(NSString *title){ UIButton*b=[UIButton buttonWithType:UI
     self.nextButton=Button(@"|▶︎"); self.nextButton.titleLabel.font=[UIFont systemFontOfSize:19 weight:UIFontWeightSemibold]; [self.nextButton addTarget:self action:@selector(nextTrack) forControlEvents:UIControlEventTouchUpInside]; [transport addSubview:self.nextButton];
     self.shuffleButton=Button(@""); [self.shuffleButton setImage:[UIImage systemImageNamed:@"shuffle"] forState:UIControlStateNormal]; self.shuffleButton.tintColor=UIColor.whiteColor; [self.shuffleButton addTarget:self action:@selector(toggleShuffle) forControlEvents:UIControlEventTouchUpInside]; [transport addSubview:self.shuffleButton];
     self.repeatButton=Button(@""); [self.repeatButton setImage:[UIImage systemImageNamed:(self.library.repeatMode==2?@"repeat.1":@"repeat")] forState:UIControlStateNormal]; self.repeatButton.tintColor=UIColor.whiteColor; [self.repeatButton addTarget:self action:@selector(toggleRepeat) forControlEvents:UIControlEventTouchUpInside]; [transport addSubview:self.repeatButton];
-    self.volumeSlider=[UISlider new]; self.volumeSlider.minimumValue=0; self.volumeSlider.maximumValue=1; self.volumeSlider.value=self.audio.outputVolume; self.volumeSlider.minimumTrackTintColor=ACCENT(); self.volumeSlider.translatesAutoresizingMaskIntoConstraints=NO; [self.volumeSlider addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged]; [transport addSubview:self.volumeSlider];
+    MPVolumeView *systemVolume=[[MPVolumeView alloc] initWithFrame:CGRectZero]; systemVolume.translatesAutoresizingMaskIntoConstraints=NO;
+    systemVolume.showsRouteButton=NO; systemVolume.showsVolumeSlider=YES; [transport addSubview:systemVolume];
+    self.volumeSlider=nil;
+    [NSLayoutConstraint activateConstraints:@[[systemVolume.leadingAnchor constraintEqualToAnchor:transport.leadingAnchor constant:22],
+        [systemVolume.trailingAnchor constraintEqualToAnchor:transport.trailingAnchor constant:-22],
+        [systemVolume.topAnchor constraintEqualToAnchor:self.playButton.bottomAnchor constant:10],
+        [systemVolume.heightAnchor constraintEqualToConstant:35]]];
 
     UIStackView *stack=[UIStackView new]; stack.axis=UILayoutConstraintAxisVertical; stack.spacing=25; stack.translatesAutoresizingMaskIntoConstraints=NO; [content addSubview:stack];
     [self addSliderTo:stack name:@"Speed" min:.5 max:1.5 value:self.settings.speed tag:1];
@@ -489,19 +519,26 @@ static UIButton *Button(NSString *title){ UIButton*b=[UIButton buttonWithType:UI
     [self addSliderTo:stack name:@"Reverb" min:0 max:100 value:self.settings.reverb tag:3];
     [self addSliderTo:stack name:@"Bass" min:-12 max:18 value:self.settings.bass tag:4];
 
-    UILabel *hint=Label(@"Changes are previewed live. Save remembers the settings inside S&R. Export renders the current sound without changing your original file in Files.",12.5,UIFontWeightRegular); hint.textColor=SUBTLE(); hint.numberOfLines=0; [content addSubview:hint];
+    UILabel *hint=Label(@"Changes are previewed live. Save keeps your effects in Melodia. Export creates a new audio file without changing the original.",12.5,UIFontWeightRegular); hint.textColor=SUBTLE(); hint.numberOfLines=0; [content addSubview:hint];
 
     [NSLayoutConstraint activateConstraints:@[
         [scroll.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor], [scroll.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor], [scroll.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor], [scroll.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
         [content.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor], [content.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor], [content.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor], [content.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor], [content.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor],
-        [self.titleLabel.topAnchor constraintEqualToAnchor:content.topAnchor constant:20], [self.titleLabel.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [self.titleLabel.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26],
-        [fileActions.topAnchor constraintEqualToAnchor:self.titleLabel.bottomAnchor constant:8], [fileActions.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [fileActions.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26], [fileActions.heightAnchor constraintEqualToConstant:44],
+        [self.coverView.topAnchor constraintEqualToAnchor:content.topAnchor constant:16],
+        [self.coverView.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+        [self.coverView.widthAnchor constraintEqualToAnchor:content.widthAnchor multiplier:.82],
+        [self.coverView.heightAnchor constraintEqualToAnchor:self.coverView.widthAnchor],
+        [self.titleLabel.topAnchor constraintEqualToAnchor:self.coverView.bottomAnchor constant:22], [self.titleLabel.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [self.titleLabel.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26],
+        [self.artistLabel.topAnchor constraintEqualToAnchor:self.titleLabel.bottomAnchor constant:5],
+        [self.artistLabel.leadingAnchor constraintEqualToAnchor:self.titleLabel.leadingAnchor],
+        [self.artistLabel.trailingAnchor constraintEqualToAnchor:self.titleLabel.trailingAnchor],
+        [fileActions.topAnchor constraintEqualToAnchor:transport.bottomAnchor constant:22], [fileActions.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [fileActions.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26], [fileActions.heightAnchor constraintEqualToConstant:44],
         [presetsLabel.topAnchor constraintEqualToAnchor:fileActions.bottomAnchor constant:12], [presetsLabel.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
         [presets.topAnchor constraintEqualToAnchor:presetsLabel.bottomAnchor constant:7], [presets.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:52], [presets.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-52], [presets.heightAnchor constraintEqualToConstant:34],
         [self.resetButton.centerYAnchor constraintEqualToAnchor:presets.centerYAnchor], [self.resetButton.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-12], [self.resetButton.widthAnchor constraintEqualToConstant:26], [self.resetButton.heightAnchor constraintEqualToConstant:26],
         [self.eightDButton.topAnchor constraintEqualToAnchor:presets.bottomAnchor constant:9], [self.eightDButton.centerXAnchor constraintEqualToAnchor:content.centerXAnchor], [self.eightDButton.widthAnchor constraintEqualToConstant:126], [self.eightDButton.heightAnchor constraintEqualToConstant:30],
         [stack.topAnchor constraintEqualToAnchor:self.eightDButton.bottomAnchor constant:18], [stack.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [stack.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26],
-        [transport.topAnchor constraintEqualToAnchor:stack.bottomAnchor constant:20], [transport.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [transport.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26], [transport.heightAnchor constraintEqualToConstant:184],
+        [transport.topAnchor constraintEqualToAnchor:self.artistLabel.bottomAnchor constant:24], [transport.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [transport.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26], [transport.heightAnchor constraintEqualToConstant:184],
         [self.progressSlider.topAnchor constraintEqualToAnchor:transport.topAnchor constant:16], [self.progressSlider.leadingAnchor constraintEqualToAnchor:transport.leadingAnchor constant:18], [self.progressSlider.trailingAnchor constraintEqualToAnchor:transport.trailingAnchor constant:-18],
         [self.elapsedLabel.topAnchor constraintEqualToAnchor:self.progressSlider.bottomAnchor constant:2], [self.elapsedLabel.leadingAnchor constraintEqualToAnchor:self.progressSlider.leadingAnchor],
         [self.remainingLabel.topAnchor constraintEqualToAnchor:self.progressSlider.bottomAnchor constant:2], [self.remainingLabel.trailingAnchor constraintEqualToAnchor:self.progressSlider.trailingAnchor],
@@ -510,8 +547,8 @@ static UIButton *Button(NSString *title){ UIButton*b=[UIButton buttonWithType:UI
         [self.nextButton.centerYAnchor constraintEqualToAnchor:self.playButton.centerYAnchor], [self.nextButton.leadingAnchor constraintEqualToAnchor:self.playButton.trailingAnchor constant:14], [self.nextButton.widthAnchor constraintEqualToConstant:46], [self.nextButton.heightAnchor constraintEqualToConstant:40],
         [self.shuffleButton.centerYAnchor constraintEqualToAnchor:self.playButton.centerYAnchor], [self.shuffleButton.trailingAnchor constraintEqualToAnchor:self.previousButton.leadingAnchor constant:-8], [self.shuffleButton.widthAnchor constraintEqualToConstant:42], [self.shuffleButton.heightAnchor constraintEqualToConstant:40],
         [self.repeatButton.centerYAnchor constraintEqualToAnchor:self.playButton.centerYAnchor], [self.repeatButton.leadingAnchor constraintEqualToAnchor:self.nextButton.trailingAnchor constant:8], [self.repeatButton.widthAnchor constraintEqualToConstant:42], [self.repeatButton.heightAnchor constraintEqualToConstant:40],
-        [self.volumeSlider.topAnchor constraintEqualToAnchor:self.playButton.bottomAnchor constant:10], [self.volumeSlider.leadingAnchor constraintEqualToAnchor:transport.leadingAnchor constant:22], [self.volumeSlider.trailingAnchor constraintEqualToAnchor:transport.trailingAnchor constant:-22],
-        [hint.topAnchor constraintEqualToAnchor:transport.bottomAnchor constant:16], [hint.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [hint.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26], [hint.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-24],
+        
+        [hint.topAnchor constraintEqualToAnchor:stack.bottomAnchor constant:16], [hint.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:26], [hint.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-26], [hint.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-24],
         [content.heightAnchor constraintGreaterThanOrEqualToAnchor:scroll.frameLayoutGuide.heightAnchor]
     ]];
 
@@ -526,9 +563,11 @@ static UIButton *Button(NSString *title){ UIButton*b=[UIButton buttonWithType:UI
 - (void)scrubBegan:(UISlider*)s { self.scrubbing=YES; }
 - (void)scrubChanged:(UISlider*)s { self.elapsedLabel.text=[self clock:s.value]; self.remainingLabel.text=[@"−" stringByAppendingString:[self clock:MAX(0,self.audio.duration-s.value)]]; }
 - (void)scrubEnded:(UISlider*)s { self.scrubbing=NO; [self.audio seekTo:s.value]; [self updateProgress]; }
-- (void)accentChanged { self.saveButton.backgroundColor=ACCENT(); self.exportButton.backgroundColor=ACCENT(); self.progressSlider.minimumTrackTintColor=ACCENT(); self.volumeSlider.minimumTrackTintColor=ACCENT(); for(UISlider*s in self.sliders.allValues)s.minimumTrackTintColor=ACCENT(); [self refreshPlaybackModeButtons]; [self refreshEffectMenus]; }
+- (void)accentChanged { self.saveButton.backgroundColor=ACCENT(); self.exportButton.backgroundColor=ACCENT(); self.progressSlider.minimumTrackTintColor=ACCENT(); for(UISlider*s in self.sliders.allValues)s.minimumTrackTintColor=ACCENT(); [self refreshPlaybackModeButtons]; [self refreshEffectMenus]; }
 - (void)audioStateChanged { [self.playButton setTitle:(self.audio.playing?@"❚❚":@"▶︎") forState:UIControlStateNormal]; [self updateProgress]; }
-- (void)trackChanged:(NSNotification*)n { if(!self.audio.url)return; self.trackURL=self.audio.url; self.titleLabel.text=self.trackURL.lastPathComponent.stringByDeletingPathExtension; self.settings=[self.library settingsFor:self.trackURL]; UISlider*s1=self.sliders[@1],*s2=self.sliders[@2],*s3=self.sliders[@3],*s4=self.sliders[@4]; s1.value=self.settings.speed; s2.value=powf(2.0f,self.settings.pitch/1200.0f); s3.value=self.settings.reverb; s4.value=self.settings.bass; [self updateLabel:(UILabel*)[s1.superview viewWithTag:101] tag:1 value:s1.value]; [self updateLabel:(UILabel*)[s2.superview viewWithTag:102] tag:2 value:s2.value]; [self updateLabel:(UILabel*)[s3.superview viewWithTag:103] tag:3 value:s3.value]; [self updateLabel:(UILabel*)[s4.superview viewWithTag:104] tag:4 value:s4.value]; [self refreshEffectMenus]; [self.audio apply:self.settings]; [self audioStateChanged]; }
+- (void)trackChanged:(NSNotification*)n { if(!self.audio.url)return; self.trackURL=self.audio.url; self.titleLabel.text=self.trackURL.lastPathComponent.stringByDeletingPathExtension;
+    self.artistLabel.text=MelodiaArtist(self.trackURL); self.coverView.image=MelodiaArtwork(self.trackURL)?:MelodiaPlaceholder(); self.backgroundCover.image=MelodiaArtwork(self.trackURL);
+    self.settings=[self.library settingsFor:self.trackURL]; UISlider*s1=self.sliders[@1],*s2=self.sliders[@2],*s3=self.sliders[@3],*s4=self.sliders[@4]; s1.value=self.settings.speed; s2.value=powf(2.0f,self.settings.pitch/1200.0f); s3.value=self.settings.reverb; s4.value=self.settings.bass; [self updateLabel:(UILabel*)[s1.superview viewWithTag:101] tag:1 value:s1.value]; [self updateLabel:(UILabel*)[s2.superview viewWithTag:102] tag:2 value:s2.value]; [self updateLabel:(UILabel*)[s3.superview viewWithTag:103] tag:3 value:s3.value]; [self updateLabel:(UILabel*)[s4.superview viewWithTag:104] tag:4 value:s4.value]; [self refreshEffectMenus]; [self.audio apply:self.settings]; [self audioStateChanged]; }
 - (float)stepForTag:(NSInteger)tag { if(tag==1)return .05f; if(tag==2)return .05f; if(tag==3)return 5.0f; return 1.0f; }
 - (float)snap:(float)v tag:(NSInteger)tag { float st=[self stepForTag:tag]; return roundf(v/st)*st; }
 - (void)addSliderTo:(UIStackView*)stack name:(NSString*)name min:(float)min max:(float)max value:(float)value tag:(NSInteger)tag {
