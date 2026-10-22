@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 17)
 add_executable(sr_ios MACOSX_BUNDLE main.mm SRIcon.png)
 set_source_files_properties(SRIcon.png PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 target_link_libraries(sr_ios PRIVATE
-  "-framework UIKit" "-framework Foundation" "-framework AVFoundation" "-framework UniformTypeIdentifiers" "-framework MediaPlayer" "-framework CoreGraphics" "-framework AudioToolbox")
+  "-framework UIKit" "-framework Foundation" "-framework AVFoundation" "-framework UniformTypeIdentifiers" "-framework MediaPlayer" "-framework CoreGraphics" "-framework AudioToolbox" "-framework QuartzCore")
 set_target_properties(sr_ios PROPERTIES
   MACOSX_BUNDLE TRUE
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
